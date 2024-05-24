@@ -7,74 +7,87 @@ import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 
 final public class Mailbox<A> implements Serializable {
 
-	private transient Segment read;
 	private final int grow;
 
+	private transient volatile int insert;
 	private transient volatile Segment write;
-	private transient volatile int last;
+	private transient Segment read;
 
 	public Mailbox() {
-		this(8, 1);
+		this(4, 1);
 	}
 
 	public Mailbox(int step, int grow) {
-		this.read = this.write = new Segment(null, step, 0);
 		this.grow = grow;
+		this.read = this.write = new Segment(null, step, 0);
 	}
 
 	public void add(A data) {
 		assert (data != null);
 
+		// load instance fields locally to prevent reload after sync
 		final AtomicReferenceFieldUpdater<Segment, Segment> NEXT = Segment.NEXT;
 		final AtomicReferenceFieldUpdater<Mailbox, Segment> WRITE = Mailbox.WRITE;
-		final AtomicIntegerFieldUpdater<Mailbox> LAST = Mailbox.LAST;
-
 		final int grow = this.grow;
 
-		Segment tail = this.write;
-		var isTail = true;
-		int index = 0;
+		Segment write = this.write;
+		final int step = write.length();
 
-		final int step = tail.length();
-		final int last = LAST.getAndAdd(this, 1);
+		// acquire and increment global index
+		final int insert = INSERT.getAndAdd(this, 1);
 
-		while (true) {
+		// fast path
+		if (insert < step) {
+			// global first segment
+			write.lazySet(insert, data);
+			return;
+		}
 
-			// queue could have expanded concurrently
-			while (last < tail.start) {
+		var canGrow = true;
+		int start, index;
+		Segment next;
+
+		// locate segment
+		do {
+
+			start = write.start;
+
+			while (insert < start) {
 				// segment is in the back
-				isTail = false;
-				tail = tail.prev;
+				canGrow = false;
+				write = write.prev;
+				start = write.start;
 			}
 
-			index = last - tail.start;
+			index = insert - start;
 
 			if (index < step) {
-				// success!
-				tail.lazySet(index, data);
-				if (index == grow && isTail) {
-					// expand queue eagerly
-					Segment next = new Segment(tail, step, tail.start + step);
-					NEXT.compareAndSet(tail, null, next);
+				// segment located
+				write.lazySet(index, data);
+				if (index == grow && canGrow) {
+					// expand eagerly
+					next = new Segment(write, step, start + step);
+					NEXT.compareAndSet(write, null, next);
 				}
 				return;
-			} else {
-				Segment next = tail.next;
-				if (null == next) {
-					// expand queue
-					next = new Segment(tail, step, tail.start + step);
-					if (NEXT.compareAndSet(tail, null, next)) {
-						WRITE.lazySet(this, next);
-					}
-				} else {
-					// queue expanded concurrently
-					WRITE.compareAndSet(this, tail, next);
-				}
-
-				// reload last segment
-				tail = this.write;
 			}
-		}
+
+			next = write.next;
+			if (null == next) {
+				// expand
+				next = new Segment(write, step, start + step);
+				if (NEXT.compareAndSet(write, null, next)) {
+					WRITE.lazySet(this, next);
+				}
+			} else {
+				// next segment may be stale
+				WRITE.compareAndSet(this, write, next);
+			}
+
+			// reload post expansion
+			write = this.write;
+
+		} while (true);
 	}
 
 	public boolean isEmpty() {
@@ -82,7 +95,7 @@ final public class Mailbox<A> implements Serializable {
 		int index = read.index;
 		final int start = read.start;
 
-		return start + index == this.last;
+		return start + index == this.insert;
 	}
 
 	public boolean nonEmpty() {
@@ -90,72 +103,71 @@ final public class Mailbox<A> implements Serializable {
 		int index = read.index;
 		final int start = read.start;
 
-		return start + index < this.last;
+		return start + index < this.insert;
 	}
 
 	public A poll() {
 
-		boolean handledAll = true;
-		Segment head = this.read;
-		int index = head.index;
-		final int start = head.start;
+		// load instance fields locally to prevent reload after sync
+		final Object READ = Mailbox.READ;
 
-		final Object HANDLED = Mailbox.HANDLED;
+		Segment read = this.read;
+		int index = read.index;
+		final int start = read.start;
+		final int step = read.length();
 
-		if (start + index == this.last) {
+		// acquire global index
+		final int insert = this.insert;
+
+		if (start + index == insert) {
 			// queue is empty
 			return null;
 		}
 
-		final int step = head.length();
+		boolean canDrop = true;
+		A data;
+		Segment next;
 
-		while (true) {
-			if (index < step) {
-				// search segment
+		do {
 
-				@SuppressWarnings("unchecked")
-				A data = (A) head.get(index);
+			for (; index < step; index += 1) {
+				data = (A) (read.get(index));
 
 				if (null == data) {
-					// a producer is in the process of insert
-					index += 1;
-					handledAll = false;
+					// element not inserted yet
+					canDrop = false;
 					continue;
 				}
 
-				// data is either available or handled
-
-				if (handledAll) {
-					// read has caught up
+				if (canDrop) {
+					// elements upto index were read
 					this.read.index = index + 1;
 				}
 
-				if (HANDLED == data) {
-					// move to next element in the segment
-					index += 1;
-					continue;
+				if (READ != data) {
+					// release element
+					read.lazySet(index, READ);
+					return data;
 				}
-
-				// success!
-				head.lazySet(index, HANDLED);
-				return data;
 			}
 
-			// current segment ended
-			Segment next = head.next;
-			if (next == null) {
-				// queue ended
+			// acquire next segment
+			next = read.next;
+
+			if (null == next) {
+				// end of queue
 				return null;
 			}
 
-			// move to next segment
-			head = next;
-			index = head.index;
-			if (handledAll) {
-				// remove segment
-				this.read = next;
+			read = next;
+			index = read.index;
+
+			if (canDrop) {
+				// drop segment
+				this.read = read;
 			}
-		}
+
+		} while (true);
 	}
 
 	private static class Segment extends AtomicReferenceArray<Object> {
@@ -176,10 +188,10 @@ final public class Mailbox<A> implements Serializable {
 				.newUpdater(Segment.class, Segment.class, "next");
 	}
 
-	private static final Object HANDLED = new Object();
+	private static final Object READ = new Object();
 
 	private static final AtomicReferenceFieldUpdater<Mailbox, Segment> WRITE = AtomicReferenceFieldUpdater
 			.newUpdater(Mailbox.class, Segment.class, "write");
-	private static final AtomicIntegerFieldUpdater<Mailbox> LAST = AtomicIntegerFieldUpdater.newUpdater(Mailbox.class,
-			"last");
+	private static final AtomicIntegerFieldUpdater<Mailbox> INSERT = AtomicIntegerFieldUpdater.newUpdater(Mailbox.class,
+			"insert");
 }
