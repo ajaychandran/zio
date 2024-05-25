@@ -23,7 +23,8 @@ final public class Mailbox<A> implements Serializable {
 	}
 
 	public void add(A data) {
-		assert (data != null);
+		if (null == data)
+			throw new NullPointerException();
 
 		// load instance fields locally to prevent reload after sync
 		final AtomicReferenceFieldUpdater<Segment, Segment> NEXT = Segment.NEXT;

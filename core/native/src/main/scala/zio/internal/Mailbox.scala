@@ -7,7 +7,7 @@ final class Mailbox[A] extends Serializable {
 
   def add(data: A): Unit = {
     if (null == data)
-      throw new IllegalArgumentException("cannot add null")
+      throw new NullPointerException()
 
     val next = new Mailbox.Node(data)
     write.next = next
