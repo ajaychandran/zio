@@ -84,6 +84,9 @@ private[zio] trait PlatformSpecific {
 
   final def newWeakReference[A](value: A)(implicit unsafe: zio.Unsafe): () => A = { () => value }
 
+  final def newMailbox[A]()(implicit unsafe: zio.Unsafe): java.util.Queue[A] =
+    new java.util.concurrent.ConcurrentLinkedQueue[A]
+
   private def blackhole(a: Any): Unit = {
     val _ = a
     ()

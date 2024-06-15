@@ -123,6 +123,9 @@ private[zio] trait PlatformSpecific {
     () => ref.get()
   }
 
+  final def newMailbox[A]()(implicit unsafe: zio.Unsafe): java.util.Queue[A] =
+    new org.jctools.queues.MpscLinkedQueue[A]
+
   private def getJdkVersion(): Option[Int] = {
     val versionString = System.getProperty("java.version")
     scala.util.Try {

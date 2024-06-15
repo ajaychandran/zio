@@ -214,7 +214,8 @@ lazy val core = crossProject(JSPlatform, JVMPlatform, NativePlatform)
   .settings(scalacOptions += "-Wconf:msg=[zio.stacktracer.TracingImplicits.disableAutoTrace]:silent")
   .jvmSettings(
     replSettings,
-    mimaSettings(failOnProblem = true)
+    mimaSettings(failOnProblem = true),
+    libraryDependencies += "org.jctools" % "jctools-core" % "4.0.3"
   )
   .jsSettings(
     jsSettings,
