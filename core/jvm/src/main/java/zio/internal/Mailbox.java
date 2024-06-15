@@ -59,17 +59,16 @@ public final class Mailbox<A> extends MailboxWritePad {
 	}
 
 	public boolean isEmpty() {
-		return null == read.next;
+		return null == NEXT.getAcquire(read);
 	}
 
 	public boolean nonEmpty() {
-		return null != read.next;
+		return null != NEXT.getAcquire(read);
 	}
 
 	@SuppressWarnings("unchecked")
 	public A poll() {
-		// Node next = (Node) (NEXT.getOpaque(read));
-		Node next = read.next;
+		Node next = (Node) (NEXT.getAcquire(read));
 
 		if (next == null)
 			return null;
