@@ -13,10 +13,10 @@ final class Mailbox[A](private var read: Mailbox.Node[A]) extends AtomicReferenc
   }
 
   def isEmpty(): Boolean =
-    null == read.get()
+    null == read.getAcquire()
 
   def nonEmpty(): Boolean =
-    null != read.get()
+    null != read.getAcquire()
 
   def poll(): A = {
     val next = read.getAcquire()
