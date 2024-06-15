@@ -12,6 +12,14 @@ abstract class MailboxClassPad implements Serializable {
 	protected long _4;
 	protected long _5;
 	protected long _6;
+	protected long _7;
+	protected long _8;
+	protected long _9;
+	protected long _a;
+	protected long _b;
+	protected long _c;
+	protected long _d;
+	protected long _e;
 }
 
 abstract class MailboxWrite extends MailboxClassPad {
@@ -27,6 +35,14 @@ abstract class MailboxWritePad extends MailboxWrite {
 	protected long __5;
 	protected long __6;
 	protected long __7;
+	protected long __8;
+	protected long __9;
+	protected long __a;
+	protected long __b;
+	protected long __c;
+	protected long __d;
+	protected long __e;
+	protected long __f;
 }
 
 public final class Mailbox<A> extends MailboxWritePad {
