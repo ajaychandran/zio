@@ -21,7 +21,6 @@ import zio.stacktracer.TracingImplicits.disableAutoTrace
 import scala.annotation.tailrec
 import scala.util.control.ControlThrowable
 import java.util.{Set => JavaSet}
-import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicBoolean
 
 import zio._
@@ -45,7 +44,7 @@ final class FiberRuntime[E, A](fiberId: FiberId.Runtime, fiberRefs0: FiberRefs, 
   private var _blockingOn     = FiberRuntime.notBlockingOn
   private var _asyncContWith  = null.asInstanceOf[ZIO.Erased => Any]
   private val running         = new AtomicBoolean(false)
-  private val inbox           = new ConcurrentLinkedQueue[FiberMessage]()
+  private val inbox           = Platform.newMailbox[FiberMessage]()(Unsafe.unsafe)
   private var _children       = null.asInstanceOf[JavaSet[Fiber.Runtime[_, _]]]
   private var observers       = Nil: List[Exit[E, A] => Unit]
   private var runningExecutor = null.asInstanceOf[Executor]
